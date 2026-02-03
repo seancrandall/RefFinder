@@ -34,7 +34,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from uspto_odp.controller.uspto_odp_client import USPTOClient
-from uspto_odp.controller.uspto_odp_error import USPTOError
+try:
+    from uspto_odp.controller.uspto_odp_error import USPTOError
+except ModuleNotFoundError:
+    # Newer uspto-odp versions define USPTOError in uspto_odp_client.
+    from uspto_odp.controller.uspto_odp_client import USPTOError
 
 
 # ------------------------------
