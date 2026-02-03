@@ -174,7 +174,9 @@ def _extract_app_number(search_result: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-async def resolve_application_number(client: USPTOClient, ref: CitedRef) -> Optional[str]:
+async def resolve_application_number(
+    client: USPTOClient, ref: CitedRef, verbose: bool = False
+) -> Optional[str]:
     """Resolve a publication/grant number to applicationNumberText via ODP search."""
     for q in _search_queries_for_ref(ref):
         try:
@@ -187,6 +189,8 @@ async def resolve_application_number(client: USPTOClient, ref: CitedRef) -> Opti
             )
             app = _extract_app_number(res)
             if app:
+                if verbose:
+                    eprint(f"INFO: {ref.ref_type} {ref.number}: application number {app}")
                 return app
         except USPTOError as e:
             # 400 means the field/query syntax is invalid for current schema; try the next one.
@@ -270,13 +274,11 @@ async def process_one(
     num = ref.number
     notfound_path = out_dir / f"{num}.notfound"
 
-    app_number = await resolve_application_number(client, ref)
+    app_number = await resolve_application_number(client, ref, verbose=verbose)
     if not app_number:
         notfound_path.write_bytes(b"")
         eprint(f"INFO: {ref.ref_type} {num}: not found (could not resolve application number)")
         return
-    if verbose:
-        eprint(f"INFO: {ref.ref_type} {num}: application number {app_number}")
 
     try:
         docs = await client.get_patent_documents(app_number)
