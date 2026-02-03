@@ -265,6 +265,7 @@ async def process_one(
     ref: CitedRef,
     out_dir: Path,
     want_drawings: bool,
+    verbose: bool,
 ) -> None:
     num = ref.number
     notfound_path = out_dir / f"{num}.notfound"
@@ -274,6 +275,8 @@ async def process_one(
         notfound_path.write_bytes(b"")
         eprint(f"INFO: {ref.ref_type} {num}: not found (could not resolve application number)")
         return
+    if verbose:
+        eprint(f"INFO: {ref.ref_type} {num}: application number {app_number}")
 
     try:
         docs = await client.get_patent_documents(app_number)
@@ -332,6 +335,7 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--odp-api-keyfile", help="Path to file containing ODP API key")
     p.add_argument("-d", "--drawings", action="store_true", help="Also download drawings TIFF")
     p.add_argument("-o", "--output-directory", default="./", help="Output directory")
+    p.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     return p
 
 
@@ -369,7 +373,7 @@ async def async_main(args: argparse.Namespace) -> int:
     try:
         for ref in refs:
             try:
-                await process_one(client, ref, out_dir, want_drawings)
+                await process_one(client, ref, out_dir, want_drawings, bool(args.verbose))
             except Exception as e:
                 # Per-reference failure must not abort the batch.
                 (out_dir / f"{ref.number}.notfound").write_bytes(b"")
