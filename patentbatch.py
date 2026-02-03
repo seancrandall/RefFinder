@@ -157,10 +157,20 @@ def _search_queries_for_ref(ref: CitedRef) -> List[str]:
     if ref.ref_type == "grant":
         # Documented field example: applicationMetaData.patentNumber
         # (See ODP client docs examples.)
-        return f"applicationMetaData.patentNumber:{n}"
+        return [
+            f"applicationMetaData.patentNumber:{n}",
+            f"applicationMetaData.patentNumberText:{n}",
+            f"{n}",  # fallback free-text
+        ]
 
     # publication
-    return f"applicationMetaData.earliestPublicationNumber:{n}"
+    return [
+        f"applicationMetaData.publicationNumberText:{n}",
+        f"applicationMetaData.publicationNumber:{n}",
+        f"applicationMetaData.earliestPublicationNumber:{n}",
+        f'"{n}"',  # exact phrase
+        f"{n}",
+    ]
 
 
 def _extract_app_number(search_result: Dict[str, Any]) -> Optional[str]:
