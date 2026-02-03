@@ -180,6 +180,8 @@ async def resolve_application_number(
     """Resolve a publication/grant number to applicationNumberText via ODP search."""
     for q in _search_queries_for_ref(ref):
         try:
+            if verbose:
+                eprint(f"INFO: {ref.ref_type} {ref.number}: search q={q!r}")
             # Keep the response small: only ask for the field we need.
             res = await client.search_patent_applications_get(
                 q=q,
