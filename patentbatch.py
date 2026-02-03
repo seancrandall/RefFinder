@@ -152,27 +152,15 @@ def read_input(args: argparse.Namespace) -> Dict[str, Any]:
 def _search_queries_for_ref(ref: CitedRef) -> List[str]:
     """Return a short list of q=... queries to try, from most to least specific.
 
-    ODP's schema evolves; publication-number fields are not always obvious.
-    This multi-try strategy avoids hard-coding a single field name.
     """
     n = ref.number
     if ref.ref_type == "grant":
         # Documented field example: applicationMetaData.patentNumber
         # (See ODP client docs examples.)
-        return [
-            f"applicationMetaData.patentNumber:{n}",
-            f"applicationMetaData.patentNumberText:{n}",
-            f"{n}",  # fallback free-text
-        ]
+        return f"applicationMetaData.patentNumber:{n}"
 
     # publication
-    return [
-        f"applicationMetaData.publicationNumberText:{n}",
-        f"applicationMetaData.publicationNumber:{n}",
-        f"applicationMetaData.earliestPublicationNumber:{n}",
-        f'"{n}"',  # exact phrase
-        f"{n}",
-    ]
+    return f"applicationMetaData.earliestPublicationNumber:{n}"
 
 
 def _extract_app_number(search_result: Dict[str, Any]) -> Optional[str]:
