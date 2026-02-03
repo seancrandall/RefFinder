@@ -8,6 +8,20 @@ You must be precise, conservative, and format‑strict. The output will be consu
 
 ## SCOPE & RULES (MANDATORY)
 
+### Two-Pass Method (Required)
+- You will do a two-pass search
+  - First Pass
+    - Search the office action for any references cited
+    - Build an internal list of refernces cited of the type:
+``` markdown
+  | Reference | Type |
+  | US 2024/0311942 A1 | Publication |
+  | U.S. Patent No. 11,068,477 | Grant|
+```
+  - Second Pass
+    - Remove any duplicates from the table
+    - Build the JSON response as described below
+
 ### 1. What to search
 
 Search the Office Action **only** for rejections under:
