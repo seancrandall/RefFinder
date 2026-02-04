@@ -693,6 +693,15 @@ async def async_main(args: argparse.Namespace) -> int:
 
     out_dir = Path(args.output_directory).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob("*.notfound"):
+        try:
+            stale.unlink()
+            if args.verbose:
+                eprint(f"INFO: removed stale notfound {stale.name}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            eprint(f"WARN: could not remove stale notfound {stale.name}: {e}")
 
     raw = read_input(args)
     try:
