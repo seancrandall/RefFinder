@@ -4,10 +4,11 @@
 
 Input contract:
   JSON via -i/--input or stdin:
-    {"cited_references": [{"type":"publication"|"grant","number":"..."}, ...]}
+    {"cited_references": [{"type":"publication"|"grant"|"application","number":"..."}, ...]}
 
 Behavior:
   - For each reference, resolve USPTO application serial number via ODP search.
+    * If type is "application", the number is treated as the serial number (no lookup).
   - Then list documents for that application via ODP and download:
       * an XML specification archive -> extract SPEC.XML to <output>/<number>/...
   - Drawings download is not yet supported (flag is accepted but ignored).
@@ -140,7 +141,7 @@ class ODPClient:
 
 @dataclass(frozen=True)
 class CitedRef:
-    ref_type: str  # "publication" or "grant"
+    ref_type: str  # "publication", "grant", or "application"
     number: str
 
 
@@ -272,8 +273,10 @@ def parse_input_json(data: Dict[str, Any]) -> List[CitedRef]:
 
         t = item.get("type")
         n = item.get("number")
-        if t not in ("publication", "grant"):
-            raise ValueError(f'cited_references[{i}].type must be "publication" or "grant".')
+        if t not in ("publication", "grant", "application"):
+            raise ValueError(
+                f'cited_references[{i}].type must be "publication", "grant", or "application".'
+            )
         if not isinstance(n, str) or not n.strip():
             raise ValueError(f"cited_references[{i}].number must be a non-empty string.")
 
@@ -325,6 +328,8 @@ def _debug_dump_odp_search(label: str, payload: Dict[str, Any], verbose: bool) -
 
 
 def _build_odp_query(ref: CitedRef) -> str:
+    if ref.ref_type == "application":
+        return ref.number
     if ref.ref_type == "publication":
         return f"US{ref.number}A1"
     return ref.number
@@ -359,7 +364,12 @@ def _select_application_number(candidates: List[str], ref: CitedRef) -> Optional
 
 
 async def resolve_application_id(odp_client: ODPClient, ref: CitedRef, verbose: bool = False) -> Optional[str]:
-    """Resolve a publication/grant number to application serial number via ODP search."""
+    """Resolve a publication/grant number to application serial number via ODP search.
+
+    For type "application", the number is already a serial number and is returned as-is.
+    """
+    if ref.ref_type == "application":
+        return ref.number
     query = _build_odp_query(ref)
     last_error: Optional[Exception] = None
     for base_url in odp_client.root_candidates or [DEFAULT_BASE_URL]:
@@ -568,6 +578,16 @@ async def download_xml_archive(
         except Exception as e:
             eprint(f"WARN: failed to finalize XML output for {final_xml_path}: {e}")
             return False
+
+    try:
+        if archive_path.exists():
+            tar_path = archive_path.with_suffix(".tar")
+            if tar_path.exists():
+                tar_path.unlink()
+            archive_path.rename(tar_path)
+            archive_path = tar_path
+    except Exception as e:
+        eprint(f"WARN: could not rename archive {archive_path} to .tar: {e}")
 
     eprint(f"WARN: XML archive extraction failed for {archive_path}; keeping archive for inspection.")
     return False
