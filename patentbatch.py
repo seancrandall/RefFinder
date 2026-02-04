@@ -9,7 +9,7 @@ Input contract:
 Behavior:
   - For each reference, resolve USPTO application serial number via ODP search.
   - Then list documents for that application via ODP and download:
-      * an XML specification archive -> extract to <number>.xml
+      * an XML specification archive -> extract SPEC.XML to <output>/<number>/...
   - Drawings download is not yet supported (flag is accepted but ignored).
   - If a reference cannot be resolved/fetched, do NOT exit:
       * write an empty <number>.notfound and continue.
@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import sys
+import tarfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -419,27 +420,87 @@ def _pick_first_spec_xml(doc_bag: List[Dict[str, Any]]) -> Optional[Dict[str, An
     return None
 
 
-def _extract_single_xml(archive_path: Path, out_path: Path) -> bool:
-    try:
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            xml_infos = [
-                info
-                for info in zf.infolist()
-                if info.filename
-                and not info.filename.endswith("/")
-                and info.filename.casefold().endswith(".xml")
-            ]
-            if not xml_infos:
-                return False
+def _spec_suffix(name: str) -> bool:
+    return name.casefold().endswith("spec.xml")
 
-            # Prefer the largest XML entry to avoid tiny metadata files.
-            xml_infos.sort(key=lambda info: info.file_size, reverse=True)
-            target = xml_infos[0]
-            with zf.open(target) as src, open(out_path, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-        return out_path.exists() and out_path.stat().st_size > 0
-    except zipfile.BadZipFile:
-        return False
+
+def _safe_dest(base_dir: Path, name: str) -> Optional[Path]:
+    if not name or name.endswith("/"):
+        return None
+    base = base_dir.resolve()
+    dest = (base_dir / name).resolve()
+    if not str(dest).startswith(str(base)):
+        return None
+    return dest
+
+
+def _extract_spec_from_archive(archive_path: Path, out_dir: Path, verbose: bool = False) -> Optional[Path]:
+    if zipfile.is_zipfile(archive_path):
+        if verbose:
+            eprint(f"INFO: archive type=zip for {archive_path}")
+        try:
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                matches = [
+                    info
+                    for info in zf.infolist()
+                    if info.filename and not info.filename.endswith("/") and _spec_suffix(info.filename)
+                ]
+                if not matches:
+                    return None
+                matches.sort(key=lambda info: info.file_size, reverse=True)
+                for info in matches:
+                    dest = _safe_dest(out_dir, info.filename)
+                    if not dest:
+                        continue
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if verbose:
+                        eprint(f"INFO: extracting {info.filename} -> {dest}")
+                    with zf.open(info) as src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    if dest.exists() and dest.stat().st_size > 0:
+                        return dest
+                    return None
+        except zipfile.BadZipFile:
+            return None
+        return None
+
+    if tarfile.is_tarfile(archive_path):
+        if verbose:
+            eprint(f"INFO: archive type=tar for {archive_path}")
+        try:
+            with tarfile.open(archive_path, "r:*") as tf:
+                members = [
+                    m
+                    for m in tf.getmembers()
+                    if m.isfile() and m.name and _spec_suffix(m.name)
+                ]
+                if not members:
+                    return None
+                members.sort(key=lambda m: m.size, reverse=True)
+                for member in members:
+                    dest = _safe_dest(out_dir, member.name)
+                    if not dest:
+                        continue
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if verbose:
+                        eprint(f"INFO: extracting {member.name} -> {dest}")
+                    src = tf.extractfile(member)
+                    if src is None:
+                        continue
+                    with src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    if dest.exists() and dest.stat().st_size > 0:
+                        return dest
+                    return None
+        except tarfile.TarError:
+            return None
+        return None
+
+    if verbose:
+        eprint(f"WARN: unknown archive type for {archive_path}")
+    return None
 
 
 async def download_doc(
@@ -467,7 +528,8 @@ async def download_xml_archive(
     client: ODPClient,
     doc: Dict[str, Any],
     archive_path: Path,
-    out_path: Path,
+    extract_dir: Path,
+    final_xml_path: Path,
     verbose: bool = False,
     log_label: Optional[str] = None,
 ) -> bool:
@@ -490,19 +552,24 @@ async def download_xml_archive(
     if not ok:
         return False
 
-    extracted = _extract_single_xml(archive_path, out_path)
-    if extracted:
+    extracted_path = _extract_spec_from_archive(archive_path, extract_dir, verbose=verbose)
+    if extracted_path:
         try:
-            archive_path.unlink()
-        except FileNotFoundError:
-            pass
-        return True
+            if final_xml_path.exists():
+                final_xml_path.unlink()
+            final_xml_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(extracted_path), str(final_xml_path))
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            try:
+                archive_path.unlink()
+            except FileNotFoundError:
+                pass
+            return True
+        except Exception as e:
+            eprint(f"WARN: failed to finalize XML output for {final_xml_path}: {e}")
+            return False
 
-    eprint(f"WARN: XML extraction failed for archive {archive_path}; keeping archive for inspection.")
-    try:
-        out_path.unlink()
-    except FileNotFoundError:
-        pass
+    eprint(f"WARN: XML archive extraction failed for {archive_path}; keeping archive for inspection.")
     return False
 
 
@@ -556,12 +623,14 @@ async def process_one(
         eprint(f"INFO: {ref.ref_type} {num}: not found (no SPEC XML document)")
         return
 
-    xml_path = out_dir / f"{num}.xml"
     archive_path = out_dir / f"{num}.xmlarchive"
+    extract_dir = out_dir / num
+    xml_path = out_dir / f"{num}.xml"
     ok_xml = await download_xml_archive(
         odp_client,
         xml_doc,
         archive_path,
+        extract_dir,
         xml_path,
         verbose=verbose,
         log_label=f"{ref.ref_type} {num} xmlarchive",
