@@ -581,6 +581,11 @@ async def process_one(
 ) -> None:
     num = ref.number
     notfound_path = out_dir / f"{num}.notfound"
+    xml_path = out_dir / f"{num}.xml"
+
+    if xml_path.exists() and xml_path.stat().st_size > 0:
+        eprint(f"INFO: {ref.ref_type} {num}: output exists; skipping.")
+        return
 
     app_id = await resolve_application_id(odp_client, ref, verbose=verbose)
     if not app_id:
@@ -625,7 +630,6 @@ async def process_one(
 
     archive_path = out_dir / f"{num}.xmlarchive"
     extract_dir = out_dir / num
-    xml_path = out_dir / f"{num}.xml"
     ok_xml = await download_xml_archive(
         odp_client,
         xml_doc,
